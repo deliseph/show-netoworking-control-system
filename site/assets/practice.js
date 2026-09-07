@@ -1,5 +1,6 @@
-// Interactive practice: the numbers drill, spot the myth, component
-// identification, the fault diagnosis simulator, and the glossary tools.
+// Interactive practice: the numbers drill, spot the myth, byte decoding, the
+// Five Questions sort, the subnetting trainer, the fault diagnosis simulator,
+// the readiness checks and the glossary tools.
 //
 // Everything is self-graded and stored per browser. Nothing is reported
 // anywhere, which is the point: a drill you are being marked on is a test, and
@@ -12,9 +13,183 @@ const h = (html) => { const t = document.createElement('template'); t.innerHTML 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((p) => p[1]);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// The decode deck is authored with `code` spans and **bold**, because a byte
+// value that is not in a monospace face is much harder to read.
+const mdInline = (t) => esc(t)
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 
 let DATA = null;
 const loadData = async () => (DATA ||= await (await fetch('/assets/data.json')).json());
+
+const statKey = (k) => `snc-stat-${k}`;
+const getStat = (k) => { try { return JSON.parse(localStorage.getItem(statKey(k))) || { right: 0, wrong: 0 }; } catch { return { right: 0, wrong: 0 }; } };
+const setStat = (k, v) => { try { localStorage.setItem(statKey(k), JSON.stringify(v)); } catch { /* ignore */ } };
+
+const scorebar = (right, wrong, extra = '') => `<div class="scorebar">
+  <span class="score good">✓ ${right}</span>
+  <span class="score bad">✗ ${wrong}</span>${extra}</div>`;
+
+// ============================================================================
+// IPv4 helpers, duplicated deliberately so practice works without tools.js
+// ============================================================================
+
+const ipToInt = (ip) => ip.trim().split('.').reduce((a, o) => a * 256 + (+o), 0) >>> 0;
+const intToIp = (n) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join('.');
+const maskOf = (p) => (p === 0 ? 0 : (0xFFFFFFFF << (32 - p)) >>> 0);
+const netOf = (ip, p) => (ipToInt(ip) & maskOf(p)) >>> 0;
+const bcastOf = (ip, p) => (netOf(ip, p) | (~maskOf(p) >>> 0)) >>> 0;
+const normIp = (s) => s.trim().replace(/\s+/g, '').replace(/^\/+/, '');
+
+// ============================================================================
+// Subnetting trainer
+// ============================================================================
+
+const PREFIXES = [22, 23, 24, 25, 26, 27, 28, 29, 30];
+
+function randomAddress() {
+  const base = pick([
+    () => `10.${rnd(0, 254)}.${rnd(0, 254)}.${rnd(1, 254)}`,
+    () => `192.168.${rnd(0, 254)}.${rnd(1, 254)}`,
+    () => `172.${rnd(16, 31)}.${rnd(0, 254)}.${rnd(1, 254)}`,
+  ]);
+  return base();
+}
+const rnd = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+
+function makeSubnetQuestion() {
+  const kind = pick(['network', 'broadcast', 'hosts', 'range', 'talk', 'mask', 'prefix', 'fit', 'split']);
+  const ip = randomAddress();
+  const p = pick(PREFIXES);
+  const net = intToIp(netOf(ip, p));
+  const bc = intToIp(bcastOf(ip, p));
+  const usable = 2 ** (32 - p) - 2;
+  const blockOctet = Math.min(3, Math.floor(p / 8));
+  const maskOctet = (maskOf(p) >>> (8 * (3 - blockOctet))) & 255;
+  const block = 256 - maskOctet;
+
+  const working = (extra) => `  Mask for /${p} is ${intToIp(maskOf(p))}
+  Block size = 256 − ${maskOctet} = ${block}
+  ${ip} falls in the block starting ${net.split('.')[blockOctet]}
+  Network   ${net}
+  Broadcast ${bc}
+  Usable    ${intToIp(netOf(ip, p) + 1)} to ${intToIp(bcastOf(ip, p) - 1)}   (${usable.toLocaleString()} addresses)${extra || ''}`;
+
+  switch (kind) {
+    case 'network':
+      return { prompt: `What is the <b>network address</b> of <code>${ip}/${p}</code>?`, tag: 'Network address', answer: net, check: (v) => normIp(v) === net, working: working() };
+    case 'broadcast':
+      return { prompt: `What is the <b>broadcast address</b> of <code>${ip}/${p}</code>?`, tag: 'Broadcast address', answer: bc, check: (v) => normIp(v) === bc, working: working() };
+    case 'hosts':
+      return { prompt: `How many <b>usable host addresses</b> are in <code>${ip}/${p}</code>?`, tag: 'Host count', answer: String(usable), check: (v) => v.replace(/[,\s]/g, '') === String(usable), working: `  Usable = 2^(32−${p}) − 2 = ${(2 ** (32 - p)).toLocaleString()} − 2 = ${usable.toLocaleString()}\n  The two you never assign are the network address and the broadcast address.` };
+    case 'range': {
+      const ans = `${intToIp(netOf(ip, p) + 1)}-${intToIp(bcastOf(ip, p) - 1)}`;
+      return { prompt: `Give the <b>first and last usable host</b> in <code>${ip}/${p}</code>. Write them as <code>first-last</code>.`, tag: 'Usable range', answer: ans, check: (v) => normIp(v).replace(/\s*(to|-|–)\s*/gi, '-') === ans, working: working() };
+    }
+    case 'mask':
+      return { prompt: `Write <code>/${p}</code> as a <b>dotted decimal subnet mask</b>.`, tag: 'Prefix to mask', answer: intToIp(maskOf(p)), check: (v) => normIp(v) === intToIp(maskOf(p)), working: `  /${p} means ${p} ones followed by ${32 - p} zeros.\n  ${intToIp(maskOf(p))}\n  Bit values to recognise: 0 128 192 224 240 248 252 254 255` };
+    case 'prefix':
+      return { prompt: `Write the mask <code>${intToIp(maskOf(p))}</code> as a <b>CIDR prefix</b>.`, tag: 'Mask to prefix', answer: `/${p}`, check: (v) => normIp(v).replace('/', '') === String(p), working: `  Count the ones: ${intToIp(maskOf(p))} is /${p}.\n  Bit values: 128=1 192=2 224=3 240=4 248=5 252=6 254=7 255=8 ones.` };
+    case 'talk': {
+      const same = Math.random() < 0.5;
+      const a = ip;
+      let b;
+      if (same) b = intToIp(netOf(a, p) + rnd(1, Math.max(1, 2 ** (32 - p) - 2)));
+      else b = intToIp((bcastOf(a, p) + rnd(1, 40)) >>> 0);
+      const canTalk = netOf(a, p) === netOf(b, p);
+      return {
+        prompt: `Can <code>${a}/${p}</code> talk directly to <code>${b}/${p}</code>?`,
+        tag: 'Can these two talk?', answer: canTalk ? 'yes' : 'no',
+        choices: ['Yes', 'No'],
+        check: (v) => v.trim().toLowerCase().startsWith(canTalk ? 'y' : 'n'),
+        working: `  Apply the mask to both addresses.\n  ${a} → network ${intToIp(netOf(a, p))}\n  ${b} → network ${intToIp(netOf(b, p))}\n  The network portions ${canTalk ? 'MATCH, so yes' : 'DIFFER, so no. No cable will change this.'}`,
+      };
+    }
+    case 'fit': {
+      const need = pick([6, 12, 25, 50, 60, 100, 200, 300, 500]);
+      let pr = 30;
+      while (2 ** (32 - pr) - 2 < need && pr > 8) pr--;
+      return {
+        prompt: `You need one network holding <b>${need} devices</b>. What is the <b>smallest prefix</b> that works?`,
+        tag: 'Sizing a network', answer: `/${pr}`,
+        check: (v) => normIp(v).replace('/', '') === String(pr),
+        working: `  /${pr} gives 2^(32−${pr}) − 2 = ${(2 ** (32 - pr) - 2).toLocaleString()} usable, which holds ${need}.\n  /${pr + 1} would give only ${(2 ** (32 - pr - 1) - 2).toLocaleString()}, which does not.`,
+      };
+    }
+    default: {
+      const want = pick([2, 4, 8, 16]);
+      const basep = pick([22, 23, 24]);
+      const bits = Math.log2(want);
+      const np = basep + bits;
+      return {
+        prompt: `You have a <code>/${basep}</code> and you need <b>${want} equal subnets</b>. What prefix do you use?`,
+        tag: 'Splitting a range', answer: `/${np}`,
+        check: (v) => normIp(v).replace('/', '') === String(np),
+        working: `  ${want} subnets needs enough borrowed bits that 2^bits ≥ ${want}.\n  2^${bits} = ${want}, so borrow ${bits} bits.\n  /${basep} + ${bits} = /${np}   mask ${intToIp(maskOf(np))}\n  Each holds ${(2 ** (32 - np) - 2).toLocaleString()} usable addresses.`,
+      };
+    }
+  }
+}
+
+function mountSubnetTrainer(root) {
+  const stat = getStat('subnet');
+  let streak = 0;
+  let q = null;
+  const box = h('<div></div>');
+  root.append(h(`<p class="tool-sub">Endless generated questions. Twenty minutes a night for a week
+    beats three hours the day before. Aim for ten right in a row, twice.</p>`), box);
+
+  const next = () => {
+    q = makeSubnetQuestion();
+    box.innerHTML = scorebar(stat.right, stat.wrong, `<span class="score">in a row ${streak}</span>`) + `
+      <div class="q-card">
+        <div class="q-meta">${q.tag}</div>
+        <p class="q-prompt">${q.prompt}</p>
+        ${q.choices
+          ? `<div class="opts">${q.choices.map((c) => `<button class="opt" data-v="${c}"><span class="opt-k">${c[0]}</span>${c}</button>`).join('')}</div>`
+          : `<div class="fields" style="margin:0"><div class="field">
+              <input id="sq-in" placeholder="Your answer" autocomplete="off" spellcheck="false"></div></div>
+             <div class="chip-row" style="margin:12px 0 0"><button class="chip on" id="sq-go">Check</button>
+             <button class="chip" id="sq-skip">Show me</button></div>`}
+      </div>`;
+    // preventScroll: focusing on mount otherwise yanks the page down to the
+    // answer box, hiding the class title on arrival.
+    $('#sq-in', box)?.focus({ preventScroll: true });
+  };
+
+  const grade = (value, gaveUp) => {
+    const right = !gaveUp && q.check(value);
+    if (gaveUp) { stat.wrong++; streak = 0; }
+    else if (right) { stat.right++; streak++; }
+    else { stat.wrong++; streak = 0; }
+    setStat('subnet', stat);
+
+    const card = $('.q-card', box);
+    card.querySelectorAll('button, input').forEach((b) => { b.disabled = true; });
+    card.append(h(`<div class="q-answer">
+      <p><b style="color:var(--${right ? 'green' : 'red'})">${gaveUp ? 'The answer' : right ? '✓ Correct' : '✗ Not that one'}</b>
+      ${right ? '' : ` — the answer is <code>${q.answer}</code>`}</p>
+      <pre class="working">${q.working}</pre>
+      <div class="chip-row" style="margin:12px 0 0"><button class="chip on" id="sq-next">Next question →</button></div>
+    </div>`));
+    $('#sq-next', box).focus({ preventScroll: true });
+  };
+
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('#sq-next')) return next();
+    if (e.target.closest('#sq-go')) return grade($('#sq-in', box).value, false);
+    if (e.target.closest('#sq-skip')) return grade('', true);
+    const opt = e.target.closest('.opt');
+    if (opt) return grade(opt.dataset.v, false);
+  });
+  box.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if ($('#sq-next', box)) next();
+    else if ($('#sq-in', box)) grade($('#sq-in', box).value, false);
+  });
+  next();
+}
 
 // ============================================================================
 // The spaced deck shell
@@ -193,22 +368,96 @@ async function mountMyths(root, cls) {
 // Component identification
 // ============================================================================
 
-async function mountParts(root) {
+async function mountDecode(root) {
   const d = await loadData();
-  const cards = d.benchChecks.map((b) => ({ ...b, tag: b.tag || 'Components' }));
+  const cards = d.decodeChecks.map((b) => ({ ...b, tag: b.tag || 'Bytes' }));
 
-  root.append(h(`<p class="tool-sub">A marking, a package or a symptom. Name the part, its value and
-    how it fails. The markings here are the ones that are not obvious, because the obvious ones do
-    not need practising.</p>`));
+  root.append(h(`<p class="tool-sub">Raw bytes out of a capture or a scope. Say what it is before you
+    turn the card over. Fluency here is a real diagnostic advantage: a technician who can read a
+    packet without a decoder finds faults that a decoder would have hidden behind a friendly name.</p>`));
 
   const host = h('<div></div>');
   root.append(host);
   deckShell(host, {
     cards,
-    gradeLabels: ['Did not know it', 'Knew it'],
-    renderFront: (c) => `<p class="deck-q">${esc(c.q)}</p><p class="deck-tag">${esc(c.tag)}</p>`,
-    renderBack: (c) => `<p class="deck-a">${esc(c.a)}</p>${c.fails ? `<p class="deck-extra"><b>Fails by:</b> ${esc(c.fails)}</p>` : ''}`,
+    gradeLabels: ['Could not read it', 'Read it'],
+    renderFront: (c) => `<p class="deck-q">${mdInline(c.q)}</p><p class="deck-tag">${esc(c.tag)}</p>`,
+    renderBack: (c) => `<p class="deck-a">${mdInline(c.a)}</p>${c.note ? `<p class="deck-extra"><b>Why it matters:</b> ${mdInline(c.note)}</p>` : ''}`,
   });
+}
+
+// ============================================================================
+// The Five Questions
+//
+// The recurring model of the module, drilled as a sort. The explanation after
+// each answer is the actual teaching, which is why it appears whether you were
+// right or wrong.
+// ============================================================================
+
+async function mountQuestions(root) {
+  const { questionCards, questionMeta } = await loadData();
+  const box = h('<div></div>');
+  root.append(h(`<p class="tool-sub">Every protocol in this module is an answer to the same five
+    questions. Here are ${questionCards.length} real answers: sort each into the question it belongs to.
+    Read the explanation even when you are right, because that is where the teaching is.</p>`), box);
+
+  let deck = [], i = 0, right = 0, placed = [];
+
+  const start = () => { deck = shuffle([...questionCards]); i = 0; right = 0; placed = []; paint(); };
+
+  const paint = () => {
+    const cols = Object.entries(questionMeta).map(([k, v]) => `<div class="sortcol ${k}">
+        <h4>${esc(v.label)}</h4><p>${esc(v.hint)}</p>
+        ${placed.filter((pp) => pp.q === k).map((pp) => `<span class="sorted ${pp.ok ? 'right' : 'wrong'}">${esc(pp.t)}</span>`).join('')}
+      </div>`).join('');
+
+    if (i >= deck.length) {
+      box.innerHTML = `<div class="q-card"><div class="q-meta">Finished</div>
+        <p class="q-prompt">${right} out of ${deck.length}</p>
+        <p>${right === deck.length
+          ? 'Every one. You can now interrogate a protocol you have never met, which is the whole point of the model.'
+          : right >= deck.length * 0.75
+            ? 'Solid. Look back at the ones marked red and read why, particularly any in the fifth column.'
+            : 'Worth another run. These five questions are the frame every session in the module hangs on.'}</p>
+        <div class="chip-row" style="margin:12px 0 0"><button class="chip on" id="fq-again">Shuffle and go again</button></div></div>
+        <div class="sortgrid">${cols}</div>`;
+      return;
+    }
+
+    const c = deck[i];
+    box.innerHTML = `<div class="scorebar"><span class="score">${i + 1} of ${deck.length}</span>
+        <span class="score good">\u2713 ${right}</span></div>
+      <div class="q-card"><div class="q-meta">Which question is this an answer to?</div>
+        <p class="q-prompt">${esc(c.t)}</p>
+        <div class="opts">${Object.entries(questionMeta).map(([k, v]) =>
+          `<button class="opt" data-q="${k}"><span class="opt-k">\u25b8</span>${esc(v.label)}</button>`).join('')}</div>
+      </div>
+      <div class="sortgrid">${cols}</div>`;
+  };
+
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('#fq-again')) return start();
+    const btn = e.target.closest('.opt[data-q]');
+    if (!btn) return;
+    const c = deck[i];
+    const ok = btn.dataset.q === c.q;
+    if (ok) right++;
+    placed.push({ t: c.t, q: c.q, ok });
+
+    const card = $('.q-card', box);
+    card.querySelectorAll('.opt').forEach((b) => {
+      b.disabled = true;
+      if (b.dataset.q === c.q) b.classList.add('right');
+      else if (b === btn) b.classList.add('wrong');
+    });
+    card.append(h(`<div class="q-answer">
+      <p><b style="color:var(--${ok ? 'green' : 'red'})">${ok ? '\u2713' : '\u2717'} ${esc(questionMeta[c.q].label)}.</b> ${esc(c.why)}</p>
+      <div class="chip-row" style="margin:10px 0 0"><button class="chip on" id="fq-next">Next \u2192</button></div></div>`));
+    $('#fq-next', box).onclick = () => { i++; paint(); };
+    $('#fq-next', box).focus({ preventScroll: true });
+  });
+
+  start();
 }
 
 // ============================================================================
@@ -404,7 +653,9 @@ function mountGlossary() {
 const WIDGETS = {
   drill: mountDrill,
   myths: mountMyths,
-  parts: mountParts,
+  decode: mountDecode,
+  questions: mountQuestions,
+  subnetdrill: mountSubnetTrainer,
   faults: mountFaults,
   ready: mountReady,
 };

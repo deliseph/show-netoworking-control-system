@@ -11,7 +11,7 @@
 // are for the figures whose subject is a relationship rather than a process.
 
 import {
-  figure, canvas, choice, slider, toggle, label, labelWrap, box, line,
+  figure, canvas, choice, slider, toggle, button, label, labelWrap, box, line,
   palette, alpha, roundRect, fitter, textWidth, wrapText, drawnSize, TEACH,
 } from './anim-core.js';
 
@@ -550,4 +550,4 @@ export function readoutChip(g, x, y, text, value, { color, p, w = 96 }) {
   label(g, value, x + 8, y + 24, { color, size: 13, weight: 700, mono: true, max: w - 16 });
 }
 
-export { figure, canvas, choice, slider, toggle, label, labelWrap, box, line, palette, alpha, roundRect, fitter, textWidth, drawnSize, TEACH };
+export { figure, canvas, choice, slider, toggle, button, label, labelWrap, box, line, palette, alpha, roundRect, fitter, textWidth, wrapText, drawnSize, TEACH };
