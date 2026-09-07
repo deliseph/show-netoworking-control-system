@@ -1,0 +1,4 @@
+node_modules/
+site/public/
+.DS_Store
+.vercel

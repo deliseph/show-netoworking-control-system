@@ -1,0 +1,396 @@
+// Shell behaviour: theme, mobile nav, tabs, search, and progress tracking.
+
+// --- Theme ------------------------------------------------------------------
+// Three states, matching the CSS: explicit light, explicit dark, or unset,
+// which follows the operating system. Stored per browser only.
+
+const THEME_KEY = 'snc-theme';
+
+function applyTheme(v) {
+  if (v) document.documentElement.setAttribute('data-theme', v);
+  else document.documentElement.removeAttribute('data-theme');
+}
+
+try {
+  applyTheme(localStorage.getItem(THEME_KEY));
+} catch { /* private mode, blocked storage: fall through to system theme */ }
+
+document.querySelector('.theme-btn')?.addEventListener('click', () => {
+  const now = document.documentElement.getAttribute('data-theme');
+  const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const next = now ? (now === 'dark' ? 'light' : null) : (prefersDark ? 'light' : 'dark');
+  applyTheme(next);
+  try {
+    if (next) localStorage.setItem(THEME_KEY, next);
+    else localStorage.removeItem(THEME_KEY);
+  } catch { /* ignore */ }
+});
+
+// --- Mobile nav -------------------------------------------------------------
+
+const side = document.querySelector('.side');
+const menuBtn = document.querySelector('.menu-btn');
+menuBtn?.addEventListener('click', () => {
+  const open = side.classList.toggle('open');
+  menuBtn.setAttribute('aria-expanded', String(open));
+});
+side?.addEventListener('click', (e) => {
+  if (e.target.closest('a')) side.classList.remove('open');
+});
+
+// --- Tabs -------------------------------------------------------------------
+// The chosen tab is kept in the URL hash so a lecturer can link straight to,
+// say, the tools tab of Class 3 from their own notes.
+
+const tabs = [...document.querySelectorAll('.tab')];
+function showTab(id, push) {
+  if (!tabs.length) return;
+  const btn = tabs.find((t) => t.dataset.tab === id);
+  if (!btn) return;
+  tabs.forEach((t) => t.classList.toggle('on', t === btn));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('on', p.dataset.panel === id));
+  if (push) history.replaceState(null, '', `#tab=${id}`);
+}
+// The class currently being read, so the home page can offer to continue it.
+const classMatch = /^\/session\/(\d+)/.exec(location.pathname);
+if (classMatch) {
+  try { localStorage.setItem('snc-last-class', classMatch[1]); } catch { /* private window */ }
+}
+
+// Which tab this reader had open last, per page. Prepare is the right landing
+// place the first time and friction on every visit after it.
+const TABKEY = `tcs:tab:${location.pathname}`;
+const remember = (id) => { try { localStorage.setItem(TABKEY, id); } catch { /* private window */ } };
+const recall = () => { try { return localStorage.getItem(TABKEY); } catch { return null; } };
+
+tabs.forEach((t) => t.addEventListener('click', () => { showTab(t.dataset.tab, true); remember(t.dataset.tab); }));
+
+// An in-page link to #tab=... must switch the tab. Without this the header's
+// "Start learning" button changed the URL and left the reader on Prepare.
+function tabFromHash(push) {
+  if (!location.hash.startsWith('#tab=')) return false;
+  const id = location.hash.slice(5);
+  if (!tabs.some((t) => t.dataset.tab === id)) return false;
+  showTab(id, false);
+  if (push) remember(id);
+  document.querySelector('.tabs')?.scrollIntoView({ block: 'nearest' });
+  return true;
+}
+addEventListener('hashchange', () => { tabFromHash(true); });
+if (!tabFromHash(false)) {
+  const last = recall();
+  if (last && tabs.some((t) => t.dataset.tab === last)) showTab(last, false);
+}
+
+// A link to a heading inside a hidden panel must open that panel first,
+// otherwise the anchor lands on nothing.
+function revealHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id || id.startsWith('tab=')) return;
+  const target = document.getElementById(id);
+  const panel = target?.closest('.panel');
+  if (panel && !panel.classList.contains('on')) {
+    showTab(panel.dataset.panel, false);
+    target.scrollIntoView();
+  }
+}
+addEventListener('hashchange', revealHash);
+revealHash();
+
+// --- Self-test accordions ---------------------------------------------------
+
+document.addEventListener('click', (e) => {
+  const q = e.target.closest('.qa-q');
+  if (!q) return;
+  const open = q.getAttribute('aria-expanded') === 'true';
+  q.setAttribute('aria-expanded', String(!open));
+  q.nextElementSibling.hidden = open;
+});
+
+// --- Progress ---------------------------------------------------------------
+// Per browser, per student. Never leaves the device, which is why it tracks
+// only "studied", never a grade.
+
+const PROG_KEY = 'snc-progress';
+export function getProgress() {
+  try { return JSON.parse(localStorage.getItem(PROG_KEY)) || {}; } catch { return {}; }
+}
+export function setProgress(p) {
+  try { localStorage.setItem(PROG_KEY, JSON.stringify(p)); } catch { /* ignore */ }
+}
+
+const doneBtn = document.querySelector('.js-done');
+if (doneBtn) {
+  const n = doneBtn.dataset.class;
+  const paint = () => {
+    const done = !!getProgress()[`class-${n}`];
+    doneBtn.textContent = done ? '✓ Studied' : 'Mark as studied';
+    doneBtn.dataset.done = done ? '1' : '';
+  };
+  doneBtn.addEventListener('click', () => {
+    const p = getProgress();
+    if (p[`class-${n}`]) delete p[`class-${n}`];
+    else p[`class-${n}`] = Date.now();
+    setProgress(p);
+    paint();
+  });
+  paint();
+}
+
+// The home strip. It greets a brand new student with what to do next rather
+// than a scoreboard reporting that they have failed to start, and only draws a
+// bar once there is something in it. The session list is stamped onto the
+// element by the build, so eight titles are never duplicated here.
+const strip = document.getElementById('progress-strip');
+if (strip) {
+  let LIST = [];
+  try { LIST = JSON.parse(strip.dataset.classes || '[]'); } catch { LIST = []; }
+  const total = LIST.length;
+  const p = getProgress();
+  const done = LIST.filter((c) => p[`class-${c.n}`]).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  // Where they were last, from the per-page memory, so "continue" is real.
+  let lastClass = 0;
+  try { lastClass = Number(localStorage.getItem('snc-last-class')) || 0; } catch { /* private window */ }
+
+  const nextC = LIST.find((c) => !p[`class-${c.n}`]) || null;
+  const lastEntry = LIST.find((c) => c.n === lastClass && !p[`class-${c.n}`]);
+  const where = lastEntry || nextC;
+
+  let card;
+  if (!done && !lastClass) {
+    card = `<div class="next-up">
+      <span class="next-up-t">Start with Session 1</span>
+      <span class="next-up-s">The recap session. It ends with the one sentence the other seven
+        spend their lab time proving.</span>
+      <a class="btn btn-primary" href="/session/1">Open Session 1</a></div>`;
+  } else if (where) {
+    card = `<div class="next-up">
+      <span class="next-up-t">Session ${where.n} · ${where.title}</span>
+      <span class="next-up-s">${done ? `${done} of ${total} done.` : 'Picking up where you left off.'}
+        <a href="/practice#drill">Cards due</a> when you want them.</span>
+      <a class="btn btn-primary" href="/session/${where.n}">Continue</a></div>`;
+  } else {
+    card = `<div class="next-up">
+      <span class="next-up-t">All ${total} sessions marked as studied</span>
+      <span class="next-up-s">The useful thing now is retrieval and lab time, not rereading.</span>
+      <a class="btn btn-primary" href="/practice#drill">Practise what is due</a></div>`;
+  }
+
+  strip.innerHTML = card + (done ? `<div class="pbar">
+    <span class="pbar-lbl">${done} of ${total} sessions</span>
+    <span class="pbar-track"><span class="pbar-fill" style="width:${pct}%"></span></span>
+    <span class="pbar-lbl">${pct}%</span></div>` : '');
+}
+
+// --- Search -----------------------------------------------------------------
+// The index is small enough (a few hundred entries) that a plain scored
+// substring match beats loading a search library, and it works offline.
+
+const modal = document.querySelector('.search-modal');
+const input = document.querySelector('.search-input');
+const results = document.querySelector('.search-results');
+let index = null;
+let sel = 0;
+
+async function loadIndex() {
+  if (index) return index;
+  try {
+    index = await (await fetch('/search-index.json')).json();
+  } catch {
+    index = [];
+  }
+  return index;
+}
+
+function openSearch() {
+  modal.hidden = false;
+  input.value = '';
+  results.innerHTML = '<p class="sr-none">Type to search every class, tool and term.</p>';
+  input.focus();
+  loadIndex();
+}
+function closeSearch() { modal.hidden = true; }
+
+function score(entry, terms) {
+  const title = entry.t.toLowerCase();
+  const section = entry.s.toLowerCase();
+  const text = entry.x.toLowerCase();
+  let s = 0;
+  for (const t of terms) {
+    if (title.includes(t)) s += 8;
+    if (section.includes(t)) s += 5;
+    if (text.includes(t)) s += 2;
+    else if (!title.includes(t) && !section.includes(t)) return 0; // every term must appear
+  }
+  return s;
+}
+
+function runSearch(q) {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length || !index) {
+    results.innerHTML = '<p class="sr-none">Type to search every class, tool and term.</p>';
+    return;
+  }
+  const hits = index
+    .map((e) => ({ e, s: score(e, terms) }))
+    .filter((h) => h.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 20);
+
+  sel = 0;
+  results.innerHTML = hits.length
+    ? hits.map((h, i) => `<a class="sr-item${i === 0 ? ' sel' : ''}" href="${h.e.r}">
+        <div class="sr-t">${h.e.t}</div>
+        <div class="sr-s">${h.e.s}</div>
+        <div class="sr-x">${h.e.x.slice(0, 150)}…</div></a>`).join('')
+    : '<p class="sr-none">Nothing found. Try a protocol name, a number, or a symptom.</p>';
+}
+
+document.querySelector('.search-open')?.addEventListener('click', openSearch);
+input?.addEventListener('input', () => runSearch(input.value));
+modal?.addEventListener('click', (e) => { if (e.target === modal) closeSearch(); });
+
+addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if (e.key === '/' && !typing) { e.preventDefault(); openSearch(); return; }
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openSearch(); return; }
+  if (modal?.hidden !== false) return;
+
+  const items = [...results.querySelectorAll('.sr-item')];
+  if (e.key === 'Escape') { closeSearch(); }
+  else if (e.key === 'ArrowDown' && items.length) {
+    e.preventDefault(); sel = (sel + 1) % items.length;
+    items.forEach((it, i) => it.classList.toggle('sel', i === sel));
+    items[sel].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'ArrowUp' && items.length) {
+    e.preventDefault(); sel = (sel - 1 + items.length) % items.length;
+    items.forEach((it, i) => it.classList.toggle('sel', i === sel));
+    items[sel].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && items[sel]) {
+    location.href = items[sel].getAttribute('href');
+  }
+});
+
+// --- Scrollable table hint ---------------------------------------------------
+// A table wider than its column scrolls, and on a phone nothing said so. Mark
+// the ones that actually overflow, and unmark them when they stop.
+function mark(w) { w.classList.toggle('can-scroll', w.scrollWidth > w.clientWidth + 2); }
+function markScrollables() { document.querySelectorAll('.table-wrap').forEach(mark); }
+
+// A table inside a hidden panel measures zero, so it cannot be assessed until
+// the panel is shown. A ResizeObserver catches that moment, and window resizes
+// and font loads, without anything having to remember to call it.
+const tableRO = new ResizeObserver((entries) => { for (const e of entries) mark(e.target); });
+document.querySelectorAll('.table-wrap').forEach((w) => tableRO.observe(w));
+addEventListener('load', markScrollables);
+markScrollables();
+
+// --- Prepare page: one block open at a time ---------------------------------
+// All sixteen rendered at once is many thousands of pixels on a phone, most of
+// it for a class weeks away. Open the one the reader needs, let them open others.
+const prepBlocks = [...document.querySelectorAll('.prep-block')];
+if (prepBlocks.length) {
+  const setOpen = (n, open) => {
+    const block = prepBlocks.find((b) => b.dataset.prep === String(n));
+    if (!block) return;
+    const btn = block.querySelector('[data-prep-toggle]');
+    const body = block.querySelector('.prep-body');
+    body.hidden = !open;
+    block.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = open ? 'Hide' : 'Show';
+  };
+
+  // The class they are heading for: the first one not marked as studied, or
+  // the one they were last reading if that is still unfinished.
+  const done = getProgress();
+  const NUMS = prepBlocks.map((b) => Number(b.dataset.prep)).sort((a, b) => a - b);
+  let want = NUMS.find((n) => !done[`class-${n}`]) || NUMS[0] || 1;
+  try {
+    const last = Number(localStorage.getItem('snc-last-class')) || 0;
+    if (last && !done[`class-${last}`]) want = last;
+  } catch { /* private window */ }
+
+  const fromHash = /^#prepare-class-(\d+)/.exec(location.hash);
+  setOpen(fromHash ? Number(fromHash[1]) : want, true);
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-prep-toggle]');
+    if (t) {
+      const block = t.closest('.prep-block');
+      setOpen(block.dataset.prep, block.querySelector('.prep-body').hidden);
+      return;
+    }
+    const open = e.target.closest('[data-prep-open]');
+    if (open) {
+      e.preventDefault();
+      setOpen(want, true);
+      document.querySelector(`.prep-block[data-prep="${want}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  // A link straight to a class's preparation must open it.
+  addEventListener('hashchange', () => {
+    const m = /^#prepare-class-(\d+)/.exec(location.hash);
+    if (m) setOpen(Number(m[1]), true);
+  });
+}
+
+
+// --- The timetable ----------------------------------------------------------
+//
+// Which Saturday is next, worked out in the reader's own timezone from the
+// dates already on the page. A class counts as past only once its end time has
+// gone, so a student looking at this during the class still sees it as the
+// current one. After the last date it says so rather than pointing at nothing.
+
+(() => {
+  const rows = [...document.querySelectorAll('.sched-row[data-date]')];
+  if (!rows.length) return;
+  const now = Date.now();
+  const endOf = (r) => new Date(`${r.dataset.date}T${r.dataset.end || '23:59'}:00`).getTime();
+  let next = null;
+  for (const r of rows) {
+    if (endOf(r) < now) r.classList.add('is-past');
+    else if (!next) { next = r; r.classList.add('is-next'); }
+  }
+  const line = document.getElementById('sched-next');
+  if (!line) return;
+  if (!next) {
+    line.textContent = 'The taught weeks are over. Everything here stays up.';
+    line.hidden = false;
+    return;
+  }
+  // Read from the row's own data, not from the text in it: the table abbreviates
+  // for the column it lives in, and a sentence needs the words in a sentence's
+  // order.
+  const title = next.dataset.title;
+  const when = next.dataset.when;
+  const time = next.querySelector('.sched-tm')?.textContent.trim();
+  const days = Math.ceil((new Date(`${next.dataset.date}T00:00:00`).getTime() - now) / 86400000);
+  const away = days > 1 ? `${days} days away` : days === 1 ? 'tomorrow' : days === 0 ? 'today' : 'in progress';
+  line.innerHTML = `<b>Next:</b> ${title}, ${when}, ${time}. <span class="sched-away">${away}.</span>`;
+  line.hidden = false;
+})();
+
+
+// --- Printing a class ------------------------------------------------------
+//
+// Printing a class page used to put all six tabs on paper: the prep, the
+// tools, the drills and the self test, most of which is not a study note and
+// none of which is readable without the interactivity. Two rules instead. By
+// default the tab you are looking at is the tab that prints. The button prints
+// the notes: the Learn tab and that class's own numbers card, which is the pair
+// somebody actually wants on paper or as a PDF.
+
+document.querySelector('.js-print')?.addEventListener('click', () => {
+  document.body.classList.add('print-notes');
+  const clear = () => document.body.classList.remove('print-notes');
+  // Chrome and Safari fire afterprint; a dialog that is dismissed without
+  // printing fires it too. The timeout is the belt for browsers that do not.
+  addEventListener('afterprint', clear, { once: true });
+  setTimeout(clear, 20000);
+  print();
+});
