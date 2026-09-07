@@ -13,6 +13,7 @@
 import {
   figure, canvas, choice, slider, toggle, button, label, labelWrap, box, line,
   palette, alpha, roundRect, fitter, textWidth, wrapText, drawnSize, TEACH,
+  eased, easeOut,
 } from './anim-core.js';
 
 // Height a wrapped block will occupy, measured before anything is drawn, so a
@@ -80,12 +81,21 @@ export function chain(host, {
   const pos = document.createElement('span');
   pos.className = 'ac ac-read';
 
+  // A step that snaps has finished moving before the eye arrives, so the reader
+  // gets two pictures and has to work out what changed. A short settle shows
+  // them. It is a pure function of time, so a still canvas repainted once still
+  // lands on the right value.
+  let cvHolder = null;
+  const enter = eased(1, { duration: 0.34, onFrame: () => cvHolder?.once() });
+
   const go = (n) => {
+    const moved = i !== Math.max(0, Math.min(stages.length - 1, n));
     i = Math.max(0, Math.min(stages.length - 1, n));
     pos.textContent = `${tag} ${i + 1} of ${stages.length}`;
     prev.disabled = i === 0;
     next.disabled = i === stages.length - 1;
     if (stages[i].note) setNote(stages[i].note);
+    if (moved) { enter.jump(0); enter.set(1); }
     cv.once();
   };
   prev.addEventListener('click', () => go(i - 1));
@@ -139,12 +149,17 @@ export function chain(host, {
       }
 
       y += 6;
+      const e = enter.value;
       const s = stages[i];
       const innerW = w - pad * 2 - 24;
       const bodyH = blockHeight(g, s.body, innerW, { size: 12, maxLines: 6 });
       const whyH = s.why ? blockHeight(g, s.why, innerW, { size: 11, maxLines: 4 }) + 8 : 0;
       const panelH = 20 + 20 + bodyH + whyH + 8;
 
+      // The panel rises the last few pixels into place and fades as it lands.
+      g.save();
+      g.globalAlpha = 0.25 + 0.75 * e;
+      g.translate(0, (1 - e) * 7);
       box(g, pad, y, w - pad * 2, panelH, {
         fill: alpha(A, 0.06), stroke: alpha(A, 0.35), r: 8,
       });
@@ -160,6 +175,7 @@ export function chain(host, {
           color: p.muted, size: 11, max: innerW, maxLines: 4,
         });
       }
+      g.restore();
       ty = y + panelH;
 
       let bottom = ty + 10;
@@ -171,6 +187,7 @@ export function chain(host, {
     },
   });
   cvRef = cv;
+  cvHolder = cv;
   go(0);
 }
 
@@ -188,9 +205,18 @@ export function compare(host, {
   const { controls, stage, setNote } = figure(host, { title, sub, note });
   let sel = 0;
 
+  let cvHolder = null;
+  const enter = eased(1, { duration: 0.3, onFrame: () => cvHolder?.once() });
+
   controls.append(choice('Show', items.map((it, k) => [k, it.short || it.name]), {
     value: 0,
-    on: (v) => { sel = Number(v); if (items[sel].note) setNote(items[sel].note); cv.once(); },
+    on: (v) => {
+      const moved = sel !== Number(v);
+      sel = Number(v);
+      if (items[sel].note) setNote(items[sel].note);
+      if (moved) { enter.jump(0); enter.set(1); }
+      cv.once();
+    },
   }).node);
 
   let cvRef = null;
@@ -204,6 +230,13 @@ export function compare(host, {
       const pad = 10;
       const it = items[sel];
       const A = R[it.tone || accent];
+      const e = enter.value;
+
+      // Fade and lift the whole card, so switching between two options reads as
+      // one thing being replaced rather than as the page redrawing.
+      g.save();
+      g.globalAlpha = 0.3 + 0.7 * e;
+      g.translate(0, (1 - e) * 6);
 
       let y = pad + 4;
       label(g, it.name, pad, y + 8, { color: A, size: 15, weight: 700, max: w - pad * 2 });
@@ -248,10 +281,12 @@ export function compare(host, {
         y += 4;
         y += labelWrap(g, footer, pad, y + 8, { color: p.muted, size: 10.5, max: w - pad * 2, maxLines: 3 }) + 10;
       }
+      g.restore();
       fit(y + 6);
     },
   });
   cvRef = cv;
+  cvHolder = cv;
   if (items[0].note) setNote(items[0].note);
 }
 
@@ -550,4 +585,4 @@ export function readoutChip(g, x, y, text, value, { color, p, w = 96 }) {
   label(g, value, x + 8, y + 24, { color, size: 13, weight: 700, mono: true, max: w - 16 });
 }
 
-export { figure, canvas, choice, slider, toggle, button, label, labelWrap, box, line, palette, alpha, roundRect, fitter, textWidth, wrapText, drawnSize, TEACH };
+export { figure, canvas, choice, slider, toggle, button, label, labelWrap, box, line, palette, alpha, roundRect, fitter, textWidth, wrapText, drawnSize, TEACH, eased, easeOut };

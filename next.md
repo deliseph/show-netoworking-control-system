@@ -19,7 +19,7 @@ Here is where each direction leads, what it costs, and what is free. Prices are 
 | Dante Certification levels 1 to 3 | Free, online | Audinate's own training. Level 1 and 2 are an afternoon each and are the industry's common vocabulary. |
 | QLab, free tier | Free | The best way to practise cue design and OSC without a venue. |
 | Bitfocus Companion | Free, open source | Install it and connect two things. It teaches integration faster than reading about it. |
-| [Computer Science for Theatre](https://github.com/deliseph/Computer-Science) | Free | The endpoint at the other end of every protocol in this module: how to write it, how to read somebody else's, and how to verify what an AI wrote before it drives anything. A separate course by the same author; it does not assume this one. |
+| [Computer Science for Theatre](https://computer-science-theatre.vercel.app) | Free | The endpoint at the other end of every protocol in this module: how to write it, how to read somebody else's, and how to verify what an AI wrote before it drives anything. A separate course by the same author; it does not assume this one. |
 
 **If you do one thing:** build the lab. Everything in this module is more convincing when you have
 broken it yourself, and the whole kit costs less than a night out.
