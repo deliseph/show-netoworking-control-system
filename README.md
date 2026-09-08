@@ -205,8 +205,8 @@ Three doors people arrive through, and what each brings:
 
 | If you came from | You already have | What will be new |
 |---|---|---|
-| [Electronics for Theatre](https://github.com/deliseph/electronics-for-theatre) (TD year 1) | The physical layer: RS-485, termination, what is on the pair | Everything above the wire: the agreements themselves |
-| [Computer Systems and Networking](https://github.com/deliseph/theatre-computer-systems) (MDT year 1) | Subnets, VLANs, multicast, the OSI ladder | The protocols riding on them, and what each specifies on loss |
+| [Electronics for Theatre](https://electronics-for-theatre.vercel.app) (TD year 1) | The physical layer: RS-485, termination, what is on the pair | Everything above the wire: the agreements themselves |
+| [Computer Systems and Networking](https://theatre-computer-systems.vercel.app) (MDT year 1) | Subnets, VLANs, multicast, the OSI ladder | The protocols riding on them, and what each specifies on loss |
 | [Computer Science for Theatre](https://computer-science-theatre.vercel.app/) (TD year 2) | What the endpoint's code does with a message | What the message is required to be |
 | Neither | The foundations page here is complete on its own | All of it, and Session 1 assumes nothing |
 
