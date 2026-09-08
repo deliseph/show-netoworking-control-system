@@ -3,6 +3,10 @@
 An interactive teaching platform for a module of **eight three-hour sessions**, from a contact
 closure to a converged show network carrying audio, video, lighting and cues on one set of cables.
 
+**Live at [show-networking-control-system.vercel.app](https://show-networking-control-system.vercel.app/)**
+— the eight sessions, the calculators, the practice decks and teach mode, generated from the
+markdown in this repository on every deploy.
+
 It answers one question, repeatedly, from different angles:
 
 > Why does a signal that leaves a console correctly arrive at a fixture wrong, and how do you find
